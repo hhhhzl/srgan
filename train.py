@@ -1,8 +1,10 @@
 import os
-# os.environ['TL_BACKEND'] = 'tensorflow' # Just modify this line, easily switch to any framework! PyTorch will coming soon!
+
+os.environ[
+    'TL_BACKEND'] = 'tensorflow'  # Just modify this line, easily switch to any framework! PyTorch will coming soon!
 # os.environ['TL_BACKEND'] = 'mindspore'
 # os.environ['TL_BACKEND'] = 'paddle'
-os.environ['TL_BACKEND'] = 'torch'
+# os.environ['TL_BACKEND'] = 'torch'
 import time
 import numpy as np
 import tensorlayerx as tlx
@@ -14,6 +16,14 @@ import vgg
 from tensorlayerx.model import TrainOneStep
 from tensorlayerx.nn import Module
 import cv2
+import logging
+logging.basicConfig(filename='.train.log',
+                    filemode='a',
+                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.DEBUG)
+
+
 tlx.set_device('GPU')
 
 ###====================== HYPER-PARAMETERS ===========================###
@@ -31,10 +41,11 @@ hr_transform = Compose([
     RandomFlipHorizontal(),
 ])
 nor = Compose([Normalize(mean=(127.5), std=(127.5), data_format='HWC'),
-              HWC2CHW()])
+               HWC2CHW()])
 lr_transform = Resize(size=(96, 96))
 
-train_hr_imgs = tlx.vision.load_images(path=config.TRAIN.hr_img_path, n_threads = 32)
+train_hr_imgs = tlx.vision.load_images(path=config.TRAIN.hr_img_path, n_threads=32)
+
 
 class TrainData(Dataset):
 
@@ -145,7 +156,9 @@ def train():
         for step, (lr_patch, hr_patch) in enumerate(train_ds):
             step_time = time.time()
             loss = trainforinit(lr_patch, hr_patch)
-            print("Epoch: [{}/{}] step: [{}/{}] time: {:.3f}s, mse: {:.3f} ".format(
+            # print("Epoch: [{}/{}] step: [{}/{}] time: {:.3f}s, mse: {:.3f} ".format(
+            #     epoch, n_epoch_init, step, n_step_epoch, time.time() - step_time, float(loss)))
+            logging.info("Epoch: [{}/{}] step: [{}/{}] time: {:.3f}s, mse: {:.3f} ".format(
                 epoch, n_epoch_init, step, n_step_epoch, time.time() - step_time, float(loss)))
 
     # adversarial learning (G, D)
@@ -155,8 +168,10 @@ def train():
             step_time = time.time()
             loss_g = trainforG(lr_patch, hr_patch)
             loss_d = trainforD(lr_patch, hr_patch)
-            print(
-                "Epoch: [{}/{}] step: [{}/{}] time: {:.3f}s, g_loss:{:.3f}, d_loss: {:.3f}".format(
+            # print(
+            #     "Epoch: [{}/{}] step: [{}/{}] time: {:.3f}s, g_loss:{:.3f}, d_loss: {:.3f}".format(
+            #         epoch, n_epoch, step, n_step_epoch, time.time() - step_time, float(loss_g), float(loss_d)))
+            logging.info("Epoch: [{}/{}] step: [{}/{}] time: {:.3f}s, g_loss:{:.3f}, d_loss: {:.3f}".format(
                     epoch, n_epoch, step, n_step_epoch, time.time() - step_time, float(loss_g), float(loss_d)))
         # dynamic learning rate update
         lr_v.step()
@@ -165,36 +180,37 @@ def train():
             G.save_weights(os.path.join(checkpoint_dir, 'g.npz'), format='npz_dict')
             D.save_weights(os.path.join(checkpoint_dir, 'd.npz'), format='npz_dict')
 
+
 def evaluate():
     ###====================== PRE-LOAD DATA ===========================###
-    valid_hr_imgs = tlx.vision.load_images(path=config.VALID.hr_img_path )
+    valid_hr_imgs = tlx.vision.load_images(path=config.VALID.hr_img_path)
     ###========================LOAD WEIGHTS ============================###
     G.load_weights(os.path.join(checkpoint_dir, 'g.npz'), format='npz_dict')
     G.set_eval()
-    imid = 0  # 0: 企鹅  81: 蝴蝶 53: 鸟  64: 古堡
+    imid = 0
     valid_hr_img = valid_hr_imgs[imid]
     valid_lr_img = np.asarray(valid_hr_img)
     hr_size1 = [valid_lr_img.shape[0], valid_lr_img.shape[1]]
     valid_lr_img = cv2.resize(valid_lr_img, dsize=(hr_size1[1] // 4, hr_size1[0] // 4))
     valid_lr_img_tensor = (valid_lr_img / 127.5) - 1  # rescale to ［－1, 1]
 
-
     valid_lr_img_tensor = np.asarray(valid_lr_img_tensor, dtype=np.float32)
-    valid_lr_img_tensor = np.transpose(valid_lr_img_tensor,axes=[2, 0, 1])
+    valid_lr_img_tensor = np.transpose(valid_lr_img_tensor, axes=[2, 0, 1])
     valid_lr_img_tensor = valid_lr_img_tensor[np.newaxis, :, :, :]
-    valid_lr_img_tensor= tlx.ops.convert_to_tensor(valid_lr_img_tensor)
+    valid_lr_img_tensor = tlx.ops.convert_to_tensor(valid_lr_img_tensor)
     size = [valid_lr_img.shape[0], valid_lr_img.shape[1]]
 
     out = tlx.ops.convert_to_numpy(G(valid_lr_img_tensor))
     out = np.asarray((out + 1) * 127.5, dtype=np.uint8)
     out = np.transpose(out[0], axes=[1, 2, 0])
-    print("LR size: %s /  generated HR size: %s" % (size, out.shape))  # LR size: (339, 510, 3) /  gen HR size: (1, 1356, 2040, 3)
+    print("LR size: %s /  generated HR size: %s" % (
+    size, out.shape))  # LR size: (339, 510, 3) /  gen HR size: (1, 1356, 2040, 3)
     print("[*] save images")
     tlx.vision.save_image(out, file_name='valid_gen.png', path=save_dir)
     tlx.vision.save_image(valid_lr_img, file_name='valid_lr.png', path=save_dir)
     tlx.vision.save_image(valid_hr_img, file_name='valid_hr.png', path=save_dir)
-    out_bicu = cv2.resize(valid_lr_img, dsize = [size[1] * 4, size[0] * 4], interpolation = cv2.INTER_CUBIC)
-    tlx.vision.save_image(out_bicu, file_name='valid_hr_cubic.png', path=save_dir)
+    # out_bicu = cv2.resize(valid_lr_img, dsize=[size[1] * 4, size[0] * 4], interpolation=cv2.INTER_CUBIC)
+    # tlx.vision.save_image(out_bicu, file_name='valid_hr_cubic.png', path=save_dir)
 
 
 if __name__ == '__main__':
